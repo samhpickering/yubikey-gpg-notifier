@@ -27,7 +27,7 @@ except tomllib.TOMLDecodeError as exc:
     logging.error(exc)
 
 SCDAEMON = config.get("scdaemon", "scdaemon")
-NOTIFY_COMMAND = config.get("notify_command", "terminal-notifier -group yubikey-gpg-notifier -sender com.yubico.yubioath -title YubiKey -message 'Waiting for touch'")
+NOTIFY_COMMAND = config.get("notify_command", r"terminal-notifier -group yubikey-gpg-notifier -sender com.yubico.yubioath -title YubiKey -message 'Touch to release %operation operation'")
 CANCEL_COMMAND = config.get("cancel_command", "terminal-notifier -remove yubikey-gpg-notifier -sender com.yubico.yubioath")
 WAIT_TIME = config.get("wait_time", 0.3)
 
@@ -52,10 +52,11 @@ async def readline_to_queue(
         await queue.put((key, data))
     await queue.put((key, None))
 
-async def notify():
-    logging.debug("Sending notification with %s", NOTIFY_COMMAND)
+async def notify(operation: str):
+    command = str(NOTIFY_COMMAND).replace(r"%operation", operation)
+    logging.debug("Sending notification with %s", command)
     await asyncio.create_subprocess_shell(
-        NOTIFY_COMMAND,
+        command,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL
@@ -70,12 +71,14 @@ async def cancel_notification():
         stderr=asyncio.subprocess.DEVNULL
     )
 
-def is_touch_command(data: bytes) -> bool:
-    return (
-        data[:6] == b"PKAUTH"
-        or data[:6] == b"PKSIGN"
-        or data[:9] == b"PKDECRYPT"
-    )
+def get_touch_command(data: bytes) -> str | None:
+    if data[:6] == b"PKAUTH":
+        return "authentication"
+    if data[:6] == b"PKSIGN":
+        return "signing"
+    if data[:9] == b"PKDECRYPT":
+        return "decryption"
+
 
 async def main():
     passed_args = sys.argv[1:]
@@ -87,16 +90,15 @@ async def main():
         stderr=asyncio.subprocess.PIPE
     )
 
-    reader, writer = await connect_stdin_stdout()
-
     STDIN = 1
     STDOUT = 2
 
     queue = asyncio.Queue()
+    reader, writer = await connect_stdin_stdout()
     stdin_task = asyncio.create_task(readline_to_queue(reader, queue, STDIN))
     stdout_task = asyncio.create_task(readline_to_queue(scdaemon.stdout, queue, STDOUT))
 
-    operating = False
+    operation = None
     waiting = False
     notified = False
     while True:
@@ -108,7 +110,7 @@ async def main():
                 break
 
             if waiting and not notified:
-                await notify()
+                await notify(operation)
                 notified = True
 
             continue
@@ -124,12 +126,12 @@ async def main():
                 await cancel_notification()
                 notified = False
 
-            if is_touch_command(data):
-                operating = True
-                logging.debug("Detected touch command")
+            if get_touch_command(data):
+                operation = get_touch_command(data)
+                logging.debug("Detected %s command", operation)
 
             if data[:7] == b"RESTART":
-                operating = False
+                operation = None
                 notified = False
 
             scdaemon.stdin.write(data)
@@ -137,7 +139,7 @@ async def main():
         if key == STDOUT:
             logging.debug("STDOUT: %s", data)
 
-            if data[:14] == b"S PINCACHE_PUT" and operating:
+            if data[:14] == b"S PINCACHE_PUT" and operation:
                 waiting = True
             else:
                 waiting = False
