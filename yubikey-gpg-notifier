@@ -78,8 +78,10 @@ def is_touch_command(data: bytes) -> bool:
     )
 
 async def main():
+    passed_args = sys.argv[1:]
+
     scdaemon = await asyncio.create_subprocess_exec(
-        SCDAEMON, "--multi-server",
+        SCDAEMON, *passed_args,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
