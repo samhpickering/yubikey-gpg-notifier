@@ -1,24 +1,35 @@
 #!/usr/bin/env python
 
-SCDAEMON = ["scdaemon", "--multi-server"]
-
-TERMINAL_NOTIFIER = ["terminal-notifier", "-sender", "com.yubico.yubioath"]
-NOTIFICATION_GROUP = "yubikey-notify"
-NOTIFICATION_TITLE = "YubiKey"
-NOTIFICATION_MESSAGE = "Waiting for touch"
-
-WAIT_TIME = 0.3
-
 import asyncio
 import datetime
 import logging
 import sys
+import tomllib
 
+from pathlib import Path
 from typing import Coroutine, Any
 
 logging.basicConfig(filename="/tmp/yubikey-gpg-notifier.log", level=logging.DEBUG)
-logging.debug("---------------------")
-logging.debug(datetime.datetime.now())
+logging.debug(("-" * 27) + str(datetime.datetime.now()) + ("-" * 27))
+
+config = {}
+try:
+    config_path = Path.home() / Path(".config/yubikey-gpg-notifier.toml")
+    logging.info("Attempting to load config from %s", config_path)
+
+    with open(config_path, "rb") as config_file:
+        config = tomllib.load(config_file)
+    logging.info("Config successfully loaded")
+except FileNotFoundError:
+    logging.info("Config file not found, using defaults")
+except tomllib.TOMLDecodeError as exc:
+    logging.error("Error decoding config file, using defaults")
+    logging.error(exc)
+
+SCDAEMON = config.get("scdaemon", "scdaemon")
+NOTIFY_COMMAND = config.get("notify_command", "terminal-notifier -group yubikey-gpg-notifier -sender com.yubico.yubioath -title YubiKey -message 'Waiting for touch'")
+CANCEL_COMMAND = config.get("cancel_command", "terminal-notifier -remove yubikey-gpg-notifier -sender com.yubico.yubioath")
+WAIT_TIME = config.get("wait_time", 0.3)
 
 async def connect_stdin_stdout() -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     loop = asyncio.get_event_loop()
@@ -42,22 +53,18 @@ async def readline_to_queue(
     queue.put((key, None))
 
 async def notify():
-    logging.debug("Sending notification")
-    await asyncio.create_subprocess_exec(
-        *TERMINAL_NOTIFIER,
-        "-group", NOTIFICATION_GROUP,
-        "-title", NOTIFICATION_TITLE,
-        "-message", NOTIFICATION_MESSAGE,
+    logging.debug("Sending notification with %s", NOTIFY_COMMAND)
+    await asyncio.create_subprocess_shell(
+        NOTIFY_COMMAND,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL
     )
 
 async def cancel_notification():
-    logging.debug("Cancelling notification")
-    await asyncio.create_subprocess_exec(
-        *TERMINAL_NOTIFIER,
-        "-remove", NOTIFICATION_GROUP,
+    logging.debug("Cancelling notification with %s", CANCEL_COMMAND)
+    await asyncio.create_subprocess_shell(
+        CANCEL_COMMAND,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL
@@ -72,7 +79,7 @@ def is_touch_command(data: bytes) -> bool:
 
 async def main():
     scdaemon = await asyncio.create_subprocess_exec(
-        *SCDAEMON,
+        SCDAEMON, "--multi-server",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
