@@ -1,0 +1,137 @@
+#!/usr/bin/env python
+
+SCDAEMON = ["scdaemon", "--multi-server"]
+
+TERMINAL_NOTIFIER = ["terminal-notifier", "-sender", "com.yubico.yubioath"]
+NOTIFICATION_GROUP = "yubikey-notify"
+NOTIFICATION_TITLE = "YubiKey"
+NOTIFICATION_MESSAGE = "Waiting for touch"
+
+WAIT_TIME = 0.3
+
+import asyncio
+import datetime
+import logging
+import sys
+
+from typing import Coroutine, Any
+
+logging.basicConfig(filename="/tmp/yubikey-gpg-notifier.log", level=logging.DEBUG)
+logging.debug("---------------------")
+logging.debug(datetime.datetime.now())
+
+async def connect_stdin_stdout() -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    loop = asyncio.get_event_loop()
+
+    reader = asyncio.StreamReader()
+    protocol = asyncio.StreamReaderProtocol(reader)
+    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+
+    w_transport, w_protocol = await loop.connect_write_pipe(asyncio.streams.FlowControlMixin, sys.stdout)
+    writer = asyncio.StreamWriter(w_transport, w_protocol, reader, loop)
+
+    return reader, writer
+
+async def readline_to_queue(
+    reader: asyncio.StreamReader,
+    queue: asyncio.Queue,
+    key: int
+) -> Coroutine[Any, Any, Any]:
+    while data := await reader.readline():
+        await queue.put((key, data))
+    queue.put((key, None))
+
+async def notify():
+    logging.debug("Sending notification")
+    await asyncio.create_subprocess_exec(
+        *TERMINAL_NOTIFIER,
+        "-group", NOTIFICATION_GROUP,
+        "-title", NOTIFICATION_TITLE,
+        "-message", NOTIFICATION_MESSAGE,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL
+    )
+
+async def cancel_notification():
+    logging.debug("Cancelling notification")
+    await asyncio.create_subprocess_exec(
+        *TERMINAL_NOTIFIER,
+        "-remove", NOTIFICATION_GROUP,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL
+    )
+
+async def main():
+    scdaemon = await asyncio.create_subprocess_exec(
+        *SCDAEMON,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+
+    reader, writer = await connect_stdin_stdout()
+
+    STDIN = 1
+    STDOUT = 2
+
+    queue = asyncio.Queue()
+    stdin_task = asyncio.create_task(readline_to_queue(reader, queue, STDIN))
+    stdout_task = asyncio.create_task(readline_to_queue(scdaemon.stdout, queue, STDOUT))
+
+    operating = False
+    waiting = False
+    notified = False
+    while True:
+        try:
+            async with asyncio.timeout(WAIT_TIME):
+                key, data = await queue.get()
+        except TimeoutError:
+            if stdin_task.done() or stdout_task.done():
+                break
+
+            if waiting and not notified:
+                await notify()
+                notified = True
+
+            continue
+
+        if data == None:
+            break
+
+        if key == STDIN:
+            logging.debug("STDIN:  %s", data)
+
+            waiting = False
+            if notified:
+                await cancel_notification()
+                notified = False
+
+            if data[:6] == b"PKAUTH":
+                operating = True
+            if data[:6] == b"PKSIGN":
+                operating = True
+
+            if data[:7] == b"RESTART":
+                operating = False
+                notified = False
+
+            scdaemon.stdin.write(data)
+
+        if key == STDOUT:
+            logging.debug("STDOUT: %s", data)
+
+            if data[:14] == b"S PINCACHE_PUT" and operating:
+                waiting = True
+            else:
+                waiting = False
+
+                if notified:
+                    await cancel_notification()
+                    notified = False
+
+            writer.write(data)
+
+if __name__ == "__main__":
+    asyncio.run(main())
