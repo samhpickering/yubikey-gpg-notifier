@@ -63,6 +63,13 @@ async def cancel_notification():
         stderr=asyncio.subprocess.DEVNULL
     )
 
+def is_touch_command(data: bytes) -> bool:
+    return (
+        data[:6] == b"PKAUTH"
+        or data[:6] == b"PKSIGN"
+        or data[:9] == b"PKDECRYPT"
+    )
+
 async def main():
     scdaemon = await asyncio.create_subprocess_exec(
         *SCDAEMON,
@@ -108,10 +115,9 @@ async def main():
                 await cancel_notification()
                 notified = False
 
-            if data[:6] == b"PKAUTH":
+            if is_touch_command(data):
                 operating = True
-            if data[:6] == b"PKSIGN":
-                operating = True
+                logging.debug("Detected touch command")
 
             if data[:7] == b"RESTART":
                 operating = False
