@@ -50,7 +50,7 @@ async def readline_to_queue(
 ) -> Coroutine[Any, Any, Any]:
     while data := await reader.readline():
         await queue.put((key, data))
-    queue.put((key, None))
+    await queue.put((key, None))
 
 async def notify():
     logging.debug("Sending notification with %s", NOTIFY_COMMAND)
