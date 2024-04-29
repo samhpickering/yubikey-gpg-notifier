@@ -43,12 +43,14 @@ async def connect_stdin_stdout() -> tuple[asyncio.StreamReader, asyncio.StreamWr
 
     return reader, writer
 
-async def readline_to_queue(
+async def tee_stream(
     reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
     queue: asyncio.Queue,
     key: int
 ) -> Coroutine[Any, Any, Any]:
     while data := await reader.readline():
+        writer.write(data)
         await queue.put((key, data))
     await queue.put((key, None))
 
@@ -95,36 +97,23 @@ async def main():
 
     queue = asyncio.Queue()
     reader, writer = await connect_stdin_stdout()
-    stdin_task = asyncio.create_task(readline_to_queue(reader, queue, STDIN))
-    stdout_task = asyncio.create_task(readline_to_queue(scdaemon.stdout, queue, STDOUT))
+    stdin_task = asyncio.create_task(tee_stream(reader, scdaemon.stdin, queue, STDIN))
+    stdout_task = asyncio.create_task(tee_stream(scdaemon.stdout, writer, queue, STDOUT))
 
     operation = None
     waiting = False
     notified = False
     while True:
-        try:
-            async with asyncio.timeout(WAIT_TIME):
-                key, data = await queue.get()
-        except TimeoutError:
-            if stdin_task.done() or stdout_task.done():
-                break
-
-            if waiting and not notified:
-                await notify(operation)
-                notified = True
-
-            continue
+        key, data = await queue.get()
 
         if data == None:
+            logging.debug("Empty input, exiting (%s)", key)
             break
 
         if key == STDIN:
             logging.debug("STDIN:  %s", data)
 
             waiting = False
-            if notified:
-                await cancel_notification()
-                notified = False
 
             if get_touch_command(data):
                 operation = get_touch_command(data)
@@ -132,23 +121,24 @@ async def main():
 
             if data[:7] == b"RESTART":
                 operation = None
-                notified = False
-
-            scdaemon.stdin.write(data)
+                waiting = False
 
         if key == STDOUT:
             logging.debug("STDOUT: %s", data)
 
-            if data[:14] == b"S PINCACHE_PUT" and operation:
-                waiting = True
+            if data[:14] == b"S PINCACHE_PUT" and queue.empty():
+                await asyncio.sleep(WAIT_TIME)
+
+                if queue.empty():
+                    waiting = True
+                    await notify(operation)
+                    notified = True
             else:
                 waiting = False
 
-                if notified:
-                    await cancel_notification()
-                    notified = False
-
-            writer.write(data)
+        if notified and not waiting:
+            await cancel_notification()
+            notified = False
 
 if __name__ == "__main__":
     asyncio.run(main())
