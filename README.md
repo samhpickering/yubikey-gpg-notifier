@@ -8,12 +8,13 @@ When it detects one of these commands and the YubiKey has not responded for a co
 
 ## Installation
 
-Download the yubikey-gpg-notifier file somewhere suitable and ensure it is executable.
+1. Download yubikey-gpg-notifier and mark it as executable.
 
 > [!IMPORTANT]
 > Python 3.11 is currently required due to the tomllib requirement. If not available on your PATH, amend the shebang to point to a Python 3.11+ interpreter.
 
-Create a config file at `~/.config/yubikey-gpg-notifier.toml` - the tool will refuse to start without this.
+2. Create a config file at `~/.config/yubikey-gpg-notifier.toml` - the tool will refuse to start without this.
+The `scdaemon` path can be retrieved by running `gpgconf`.
 Example using [terminal-notifier](https://github.com/julienXX/terminal-notifier):
 ```toml
 scdaemon = "/path/to/gnupg/libexec/scdaemon"
@@ -22,13 +23,26 @@ cancel_command = "terminal-notifier -remove yubikey-gpg-notifier"
 wait_time = 0.1
 ```
 
-Amend (or create) your `~/.gnupg/gpg-agent.conf` with the line `scdaemon-program /path/to/yubikey-gpg-notifier`
+3. Add the line `scdaemon-program /path/to/yubikey-gpg-notifier` to `~/.gnupg/gpg-agent.conf`
 
-It may be necessary on first run and on config changes to restart the gpg-agent process:
+4. It may be necessary on first run and on config changes to restart the gpg-agent process:
 ```shell
 gpgconf --kill gpg-agent
 gpgconf --launch gpg-agent
 ```
+
+## Configuration
+
+Configuration is loaded from `~/.config/yubikey-gpg-notifier.toml` and must be present for the tool to start.
+
+Options:
+- `notify_command` - a shell command to run when a touch event is detected
+- `cancel_command` - a shell command to run when the end of a touch event is detected
+- `scdaemon` - the location of the scdaemon executable, can be retrieved with `gpgconf`
+- `wait_time` - optional - the length of time a smart card operation has to block before it is considered a touch event. Defaults to 0.1, raise this if you are seeing notifications when a touch is not needed.
+- `log_level` - optional - the [level](https://docs.python.org/3/library/logging.html#levels) of logging to output. Defaults to `info`.
+> [!WARNING]
+> When raising the log level to debug, communication between the smart card and daemon is logged. This can include PINs and other sensitive data.
 
 ## Configuration examples
 
@@ -39,6 +53,9 @@ notify_command = "terminal-notifier -group yubikey-gpg-notifier -title YubiKey -
 cancel_command = "terminal-notifier -remove yubikey-gpg-notifier"
 wait_time = 0.1
 ```
+![Screenshot of a notification using terminal-notifier](screenshots/notification-terminal-notifier.png)
+
+---
 
 Using terminal-notifier, masquerading as Yubico Authenticator:
 ```toml
@@ -47,6 +64,9 @@ notify_command = "terminal-notifier -group yubikey-gpg-notifier -sender com.yubi
 cancel_command = "terminal-notifier -remove yubikey-gpg-notifier -sender com.yubico.yubioath"
 wait_time = 0.1
 ```
+![Screenshot of a notification using terminal-notifier masquerading as Yubico Authenticator](screenshots/notification-terminal-notifier-yubico-authenticator.png)
+
+---
 
 Using libnotify's notify-send:
 ```toml
@@ -55,6 +75,12 @@ notify_command = "notify-send --transient YubiKey 'Touch to release %operation o
 cancel_command = ""
 wait_time = 0.1
 ```
+
+## Troubleshooting
+
+Logs are written to `/tmp/yubikey-gpg-notifier.log`.
+
+If running the tool directly to check for errors, it is necessary to pass the argument `--multi-server` as all arguments are passed to scdaemon. Without this scdaemon will fail to start.
 
 ## Links
 
