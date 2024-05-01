@@ -75,6 +75,7 @@ notify_command = "notify-send --transient YubiKey 'Touch to release %operation o
 cancel_command = ""
 wait_time = 0.1
 ```
+![Screenshot of a notification using notify-send in GNOME](screenshots/notification-notify-send-gnome.png)
 
 ## Troubleshooting
 
