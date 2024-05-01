@@ -7,98 +7,162 @@ import sys
 import tomllib
 
 from pathlib import Path
-from typing import Coroutine, Any
 
-logging.basicConfig(filename="/tmp/yubikey-gpg-notifier.log", level=logging.DEBUG)
-logging.debug(("-" * 27) + str(datetime.datetime.now()) + ("-" * 27))
+CONFIG_PATH = Path.home() / Path(".config") / Path("yubikey-gpg-notifier.toml")
 
-config = {}
-try:
-    config_path = Path.home() / Path(".config/yubikey-gpg-notifier.toml")
-    logging.info("Attempting to load config from %s", config_path)
+# Example config:
+# scdaemon = "/path/to/gnupg/libexec/scdaemon"
+# notify_command = "terminal-notifier -group yubikey-gpg-notifier -sender com.yubico.yubioath -title YubiKey -message 'Touch to release %operation operation'"
+# cancel_command = "terminal-notifier -remove yubikey-gpg-notifier -sender com.yubico.yubioath"
+# wait_time = 0.1 (optional, default)
+# log_level = "info" (optional, default)
 
-    with open(config_path, "rb") as config_file:
-        config = tomllib.load(config_file)
-    logging.info("Config successfully loaded")
-except FileNotFoundError:
-    logging.info("Config file not found, using defaults")
-except tomllib.TOMLDecodeError as exc:
-    logging.error("Error decoding config file, using defaults")
-    logging.error(exc)
+logging.basicConfig(
+    filename="/tmp/yubikey-gpg-notifier.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+logger.info(("-" * 27) + str(datetime.datetime.now()) + ("-" * 27))
 
-SCDAEMON = config.get("scdaemon", "scdaemon")
-NOTIFY_COMMAND = config.get("notify_command", r"terminal-notifier -group yubikey-gpg-notifier -sender com.yubico.yubioath -title YubiKey -message 'Touch to release %operation operation'")
-CANCEL_COMMAND = config.get("cancel_command", "terminal-notifier -remove yubikey-gpg-notifier -sender com.yubico.yubioath")
-WAIT_TIME = config.get("wait_time", 0.3)
 
-async def connect_stdin_stdout() -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+class ConfigError(ValueError):
+    pass
+
+
+class Config:
+    scdaemon: str
+    notify_command: str
+    cancel_command: str
+    wait_time: float
+    log_level: str
+
+    def __init__(self):
+        # Defaults
+        self.wait_time = 0.1
+        self.log_level = "INFO"
+
+    @classmethod
+    def load_toml(cls, path: Path) -> "Config":
+        with open(path, "rb") as file:
+            config_dict = tomllib.load(file)
+
+        config = cls()
+
+        def get_expected_value(name, expected_type):
+            value = config_dict.get(name)
+            if value is None:
+                raise ConfigError(f"Missing {name}")
+            if not isinstance(value, expected_type):
+                raise ConfigError(f"{name} should be a {expected_type}")
+            return value
+
+        config.scdaemon = get_expected_value("scdaemon", str)
+        config.notify_command = get_expected_value("notify_command", str)
+        config.cancel_command = get_expected_value("cancel_command", str)
+
+        wait_time = config_dict.get("wait_time")
+        if wait_time is not None:
+            try:
+                config.wait_time = float(wait_time)
+            except TypeError:
+                raise ConfigError("wait_time should be a float")
+
+        log_level = config_dict.get("log_level")
+        if log_level is not None:
+            valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+            if not isinstance(log_level, str) or log_level.upper() not in valid_levels:
+                levels = "', '".join(valid_levels)
+                raise ValueError(f"log_level should be one of '{levels}'")
+            config.log_level = log_level.upper()
+
+        return config
+
+
+async def get_stdin_reader() -> asyncio.StreamReader:
     loop = asyncio.get_event_loop()
 
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)
     await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
-    w_transport, w_protocol = await loop.connect_write_pipe(asyncio.streams.FlowControlMixin, sys.stdout)
-    writer = asyncio.StreamWriter(w_transport, w_protocol, reader, loop)
+    return reader
 
-    return reader, writer
+
+async def get_stdout_writer() -> asyncio.StreamWriter:
+    loop = asyncio.get_event_loop()
+
+    w_transport, w_protocol = await loop.connect_write_pipe(
+        protocol_factory=asyncio.streams.FlowControlMixin, pipe=sys.stdout
+    )
+
+    writer = asyncio.StreamWriter(
+        transport=w_transport, protocol=w_protocol, reader=None, loop=loop
+    )
+
+    return writer
+
 
 async def tee_stream(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
     queue: asyncio.Queue,
-    key: int
-) -> Coroutine[Any, Any, Any]:
+    key: int,
+) -> None:
+    """Forward data from reader to writer while pushing it to a queue.
+
+    Queue items are a tuple of (key, data) where key is the passed parameter.
+    data is None when EOF was reached.
+    """
     while data := await reader.readline():
         writer.write(data)
         await queue.put((key, data))
     await queue.put((key, None))
 
-async def notify(operation: str):
-    command = str(NOTIFY_COMMAND).replace(r"%operation", operation)
-    logging.debug("Sending notification with %s", command)
+
+async def notify(logger: logging.Logger, config: Config, operation: str) -> None:
+    command = str(config.notify_command).replace(r"%operation", operation)
+    logger.debug("Sending notification with %s", command)
     await asyncio.create_subprocess_shell(
         command,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL
+        stderr=asyncio.subprocess.DEVNULL,
     )
 
-async def cancel_notification():
-    logging.debug("Cancelling notification with %s", CANCEL_COMMAND)
+
+async def cancel_notification(logger: logging.Logger, config: Config):
+    logger.debug("Cancelling notification with %s", config.cancel_command)
     await asyncio.create_subprocess_shell(
-        CANCEL_COMMAND,
+        config.cancel_command,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL
+        stderr=asyncio.subprocess.DEVNULL,
     )
 
-def get_touch_command(data: bytes) -> str | None:
-    if data[:6] == b"PKAUTH":
-        return "authentication"
-    if data[:6] == b"PKSIGN":
-        return "signing"
-    if data[:9] == b"PKDECRYPT":
-        return "decryption"
 
-
-async def main():
+async def launch_scdaemon(config: Config) -> asyncio.subprocess.Process:
     passed_args = sys.argv[1:]
 
     scdaemon = await asyncio.create_subprocess_exec(
-        SCDAEMON, *passed_args,
+        config.scdaemon,
+        *passed_args,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
+        stderr=asyncio.subprocess.PIPE,
     )
 
-    STDIN = 1
-    STDOUT = 2
+    return scdaemon
 
-    queue = asyncio.Queue()
-    reader, writer = await connect_stdin_stdout()
-    stdin_task = asyncio.create_task(tee_stream(reader, scdaemon.stdin, queue, STDIN))
-    stdout_task = asyncio.create_task(tee_stream(scdaemon.stdout, writer, queue, STDOUT))
+
+async def process_events(
+    logger: logging.Logger, config: Config, queue: asyncio.Queue
+) -> None:
+    operations = {
+        b"PKAUTH": "authentication",
+        b"PKSIGN": "signing",
+        b"PKDECRYPT": "encryption",
+    }
 
     operation = None
     waiting = False
@@ -106,39 +170,78 @@ async def main():
     while True:
         key, data = await queue.get()
 
-        if data == None:
-            logging.debug("Empty input, exiting (%s)", key)
+        if data is None:
+            logger.debug("Empty input, exiting (%s)", key)
             break
 
-        if key == STDIN:
-            logging.debug("STDIN:  %s", data)
+        if key == "STDIN":
+            logger.debug("STDIN:  %s", data)
 
             waiting = False
 
-            if get_touch_command(data):
-                operation = get_touch_command(data)
-                logging.debug("Detected %s command", operation)
+            for command, description in operations.items():
+                if data[0 : len(command)] == command:
+                    logger.debug("Detected %s command", description)
+                    operation = description
 
             if data[:7] == b"RESTART":
                 operation = None
                 waiting = False
 
-        if key == STDOUT:
-            logging.debug("STDOUT: %s", data)
+        if key == "STDOUT":
+            logger.debug("STDOUT: %s", data)
 
             if data[:14] == b"S PINCACHE_PUT" and queue.empty():
-                await asyncio.sleep(WAIT_TIME)
+                await asyncio.sleep(config.wait_time)
 
                 if queue.empty():
                     waiting = True
-                    await notify(operation)
+                    await notify(logger, config, operation)
                     notified = True
             else:
                 waiting = False
 
         if notified and not waiting:
-            await cancel_notification()
+            await cancel_notification(logger, config)
             notified = False
+
+
+async def main():
+    try:
+        logger.info("Attempting to load config from %s", CONFIG_PATH)
+        config = Config.load_toml(path=CONFIG_PATH)
+        logger.info("Config loaded successfully")
+    except ConfigError as exc:
+        logger.error("Config error: %s", exc)
+        exit(1)
+    except FileNotFoundError:
+        logger.error("Config file not found")
+        exit(1)
+    except tomllib.TOMLDecodeError as exc:
+        logger.error("Error decoding config file")
+        logger.error(exc)
+        exit(1)
+
+    logger.setLevel(config.log_level)
+
+    scdaemon = await launch_scdaemon(config)
+
+    queue = asyncio.Queue()
+
+    stdin_reader = await get_stdin_reader()
+    asyncio.create_task(
+        tee_stream(reader=stdin_reader, writer=scdaemon.stdin, queue=queue, key="STDIN")
+    )
+
+    stdout_writer = await get_stdout_writer()
+    asyncio.create_task(
+        tee_stream(
+            reader=scdaemon.stdout, writer=stdout_writer, queue=queue, key="STDOUT"
+        )
+    )
+
+    await process_events(logger, config, queue)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
