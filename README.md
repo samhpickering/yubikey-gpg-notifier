@@ -18,7 +18,7 @@ Example using [terminal-notifier](https://github.com/julienXX/terminal-notifier)
     "scdaemon": "/path/to/gnupg/libexec/scdaemon",
     "notify_command": "terminal-notifier -group yubikey-gpg-notifier -title YubiKey -message 'Touch to release %operation operation'",
     "cancel_command": "terminal-notifier -remove yubikey-gpg-notifier",
-    "wait_time": 0.1
+    "wait_time": 0.2
 }
 ```
 
@@ -51,7 +51,7 @@ Using terminal-notifier:
     "scdaemon": "/path/to/gnupg/libexec/scdaemon",
     "notify_command": "terminal-notifier -group yubikey-gpg-notifier -title YubiKey -message 'Touch to release %operation operation'",
     "cancel_command": "terminal-notifier -remove yubikey-gpg-notifier",
-    "wait_time": 0.1
+    "wait_time": 0.2
 }
 ```
 ![Screenshot of a notification using terminal-notifier](screenshots/notification-terminal-notifier.png)
@@ -64,7 +64,7 @@ Using terminal-notifier, masquerading as Yubico Authenticator:
     "scdaemon": "/path/to/gnupg/libexec/scdaemon",
     "notify_command": "terminal-notifier -group yubikey-gpg-notifier -sender com.yubico.yubioath -title YubiKey -message 'Touch to release %operation operation'",
     "cancel_command": "terminal-notifier -remove yubikey-gpg-notifier -sender com.yubico.yubioath",
-    "wait_time": 0.1
+    "wait_time": 0.2
 }
 ```
 ![Screenshot of a notification using terminal-notifier masquerading as Yubico Authenticator](screenshots/notification-terminal-notifier-yubico-authenticator.png)
@@ -77,7 +77,7 @@ Using libnotify's notify-send:
     "scdaemon": "/path/to/gnupg/libexec/scdaemon",
     "notify_command": "notify-send --transient YubiKey 'Touch to release %operation operation'",
     "cancel_command": "",
-    "wait_time": 0.1
+    "wait_time": 0.2
 }
 ```
 ![Screenshot of a notification using notify-send in GNOME](screenshots/notification-notify-send-gnome.png)
