@@ -183,7 +183,7 @@ async def process_events(
         if key == "STDOUT":
             logger.debug("STDOUT: %s", data)
 
-            if data[:14] == b"S PINCACHE_PUT" and queue.empty():
+            if operation and data[:14] == b"S PINCACHE_PUT" and queue.empty():
                 await asyncio.sleep(config.wait_time)
 
                 if queue.empty():
