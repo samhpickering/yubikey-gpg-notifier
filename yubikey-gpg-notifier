@@ -99,8 +99,8 @@ async def get_stdout_writer() -> asyncio.StreamWriter:
 async def tee_stream(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
-    queue: asyncio.Queue,
-    key: int,
+    queue: asyncio.Queue[tuple[str, bytes]],
+    key: str,
 ) -> None:
     """Forward data from reader to writer while pushing it to a queue.
 
@@ -124,7 +124,7 @@ async def notify(logger: logging.Logger, config: Config, operation: str) -> None
     )
 
 
-async def cancel_notification(logger: logging.Logger, config: Config):
+async def cancel_notification(logger: logging.Logger, config: Config) -> None:
     logger.debug("Cancelling notification with %s", config.cancel_command)
     await asyncio.create_subprocess_shell(
         config.cancel_command,
@@ -149,7 +149,7 @@ async def launch_scdaemon(config: Config) -> asyncio.subprocess.Process:
 
 
 async def process_events(
-    logger: logging.Logger, config: Config, queue: asyncio.Queue
+    logger: logging.Logger, config: Config, queue: asyncio.Queue[tuple[str, bytes]]
 ) -> None:
     operations = {
         b"PKAUTH": "authentication",
