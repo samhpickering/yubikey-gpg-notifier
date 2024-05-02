@@ -65,7 +65,7 @@ class Config:
                 valid_level_list = "', '".join(valid_levels)
                 raise ConfigError(f"log_level should be one of '{valid_level_list}'")
 
-            config.log_level = log_level.upper()
+            config.log_level = log_level
         else:
             config.log_level = "INFO"
 
