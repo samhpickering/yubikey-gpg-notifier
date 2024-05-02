@@ -1,21 +1,14 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import asyncio
 import datetime
+import json
 import logging
 import sys
-import tomllib
 
 from pathlib import Path
 
-CONFIG_PATH = Path.home() / Path(".config") / Path("yubikey-gpg-notifier.toml")
-
-# Example config:
-# scdaemon = "/path/to/gnupg/libexec/scdaemon"
-# notify_command = "terminal-notifier -group yubikey-gpg-notifier -sender com.yubico.yubioath -title YubiKey -message 'Touch to release %operation operation'"
-# cancel_command = "terminal-notifier -remove yubikey-gpg-notifier -sender com.yubico.yubioath"
-# wait_time = 0.1 (optional, default)
-# log_level = "info" (optional, default)
+CONFIG_PATH = Path.home() / Path(".config") / Path("yubikey-gpg-notifier.json")
 
 logging.basicConfig(
     filename="/tmp/yubikey-gpg-notifier.log",
@@ -37,44 +30,44 @@ class Config:
     wait_time: float
     log_level: str
 
-    def __init__(self):
-        # Defaults
-        self.wait_time = 0.1
-        self.log_level = "INFO"
-
     @classmethod
-    def load_toml(cls, path: Path) -> "Config":
-        with open(path, "rb") as file:
-            config_dict = tomllib.load(file)
+    def load(cls, path: Path) -> "Config":
+        with open(path, "r") as file:
+            config_dict = json.load(file)
+
+        if not isinstance(config_dict, dict):
+            raise ConfigError("Config should be a dictionary")
 
         config = cls()
 
-        def get_expected_value(name, expected_type):
-            value = config_dict.get(name)
+        def get_expected_value(key, expected_type):
+            value = config_dict.get(key)
             if value is None:
-                raise ConfigError(f"Missing {name}")
+                raise ConfigError(f"Missing {key}")
             if not isinstance(value, expected_type):
-                raise ConfigError(f"{name} should be a {expected_type}")
+                raise ConfigError(f"{key} should be type {expected_type}")
             return value
 
         config.scdaemon = get_expected_value("scdaemon", str)
         config.notify_command = get_expected_value("notify_command", str)
         config.cancel_command = get_expected_value("cancel_command", str)
-
-        wait_time = config_dict.get("wait_time")
-        if wait_time is not None:
-            try:
-                config.wait_time = float(wait_time)
-            except TypeError:
-                raise ConfigError("wait_time should be a float")
+        config.wait_time = get_expected_value("wait_time", (int, float))
 
         log_level = config_dict.get("log_level")
         if log_level is not None:
+            if not isinstance(log_level, str):
+                raise ConfigError(f"log_level should be type {str}")
+
+            log_level = log_level.upper()
+
             valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-            if not isinstance(log_level, str) or log_level.upper() not in valid_levels:
-                levels = "', '".join(valid_levels)
-                raise ValueError(f"log_level should be one of '{levels}'")
+            if log_level not in valid_levels:
+                valid_level_list = "', '".join(valid_levels)
+                raise ConfigError(f"log_level should be one of '{valid_level_list}'")
+
             config.log_level = log_level.upper()
+        else:
+            config.log_level = "INFO"
 
         return config
 
@@ -209,7 +202,7 @@ async def process_events(
 async def main():
     try:
         logger.info("Attempting to load config from %s", CONFIG_PATH)
-        config = Config.load_toml(path=CONFIG_PATH)
+        config = Config.load(path=CONFIG_PATH)
         logger.info("Config loaded successfully")
     except ConfigError as exc:
         logger.error("Config error: %s", exc)
@@ -217,8 +210,8 @@ async def main():
     except FileNotFoundError:
         logger.error("Config file not found")
         exit(1)
-    except tomllib.TOMLDecodeError as exc:
-        logger.error("Error decoding config file")
+    except Exception as exc:
+        logger.error("Error loading config file")
         logger.error(exc)
         exit(1)
 
