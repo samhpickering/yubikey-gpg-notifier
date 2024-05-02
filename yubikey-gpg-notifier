@@ -179,7 +179,6 @@ async def process_events(
 
             if data[:7] == b"RESTART":
                 operation = None
-                waiting = False
 
         if key == "STDOUT":
             logger.debug("STDOUT: %s", data)
