@@ -198,7 +198,7 @@ async def process_events(
             notified = False
 
 
-async def main():
+async def async_main():
     try:
         logger.info("Attempting to load config from %s", CONFIG_PATH)
         config = Config.load(path=CONFIG_PATH)
@@ -234,6 +234,8 @@ async def main():
 
     await process_events(logger, config, queue)
 
+def main():
+    asyncio.run(async_main())
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
