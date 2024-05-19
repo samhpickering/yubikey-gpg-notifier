@@ -8,9 +8,15 @@ When it detects one of these commands and the YubiKey has not responded for a co
 
 ## Installation
 
-1. Download yubikey-gpg-notifier and mark it as executable.
+1. Clone this repository to your machine.
 
-2. Create a config file at `~/.config/yubikey-gpg-notifier.json` - the tool will refuse to start without this.
+2. Run `pip install <repository path>`
+
+3. Get the path to the installed script with `which yubikey-gpg-notifier`
+
+3. Add the line `scdaemon-program <path to yubikey-gpg-notifier>` to `~/.gnupg/gpg-agent.conf`
+
+4. Create a config file at `~/.config/yubikey-gpg-notifier.json` - the tool will refuse to start without this.
 The `scdaemon` path can be retrieved by running `gpgconf`.
 Example using [terminal-notifier](https://github.com/julienXX/terminal-notifier):
 ```json
@@ -24,9 +30,7 @@ Example using [terminal-notifier](https://github.com/julienXX/terminal-notifier)
 }
 ```
 
-3. Add the line `scdaemon-program /path/to/yubikey-gpg-notifier` to `~/.gnupg/gpg-agent.conf`
-
-4. It may be necessary on first run and on config changes to restart the gpg-agent process:
+5. It may be necessary on first run and on config changes to restart the gpg-agent process:
 ```shell
 gpgconf --kill gpg-agent
 gpgconf --launch gpg-agent

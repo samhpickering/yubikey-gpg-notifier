@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yubikey_gpg_notifier"
+version = "0.1.0"
+description = "This tool creates notifications when it detects gpg operations are waiting for a YubiKey touch."
+readme = "README.md"
+
+[project.urls]
+Homepage = "https://github.com/samhpickering/yubikey-gpg-notifier"
+
+[project.scripts]
+yubikey-gpg-notifier = "yubikey_gpg_notifier:main"
