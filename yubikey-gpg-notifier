@@ -27,7 +27,9 @@ class Config:
     scdaemon: str
     notify_command: str
     cancel_command: str
-    wait_time: float
+    auth_wait_time: float
+    sign_wait_time: float
+    decrypt_wait_time: float
     log_level: str
 
     @classmethod
@@ -51,7 +53,9 @@ class Config:
         config.scdaemon = get_expected_value("scdaemon", str)
         config.notify_command = get_expected_value("notify_command", str)
         config.cancel_command = get_expected_value("cancel_command", str)
-        config.wait_time = get_expected_value("wait_time", (int, float))
+        config.auth_wait_time = get_expected_value("auth_wait_time", (int, float))
+        config.sign_wait_time = get_expected_value("sign_wait_time", (int, float))
+        config.decrypt_wait_time = get_expected_value("decrypt_wait_time", (int, float))
 
         log_level = config_dict.get("log_level")
         if log_level is not None:
@@ -152,12 +156,21 @@ async def process_events(
     logger: logging.Logger, config: Config, queue: asyncio.Queue[tuple[str, bytes]]
 ) -> None:
     operations = {
-        b"PKAUTH": "authentication",
-        b"PKSIGN": "signing",
-        b"PKDECRYPT": "encryption",
+        b"PKAUTH": {
+            "description": "authentication",
+            "wait_time": config.auth_wait_time,
+        },
+        b"PKSIGN": {
+            "description": "signing",
+            "wait_time": config.sign_wait_time,
+        },
+        b"PKDECRYPT": {
+            "description": "encryption",
+            "wait_time": config.decrypt_wait_time,
+        },
     }
 
-    operation = None
+    current_operation = None
     waiting = False
     notified = False
     while True:
@@ -172,23 +185,23 @@ async def process_events(
 
             waiting = False
 
-            for command, description in operations.items():
+            for command, operation in operations.items():
                 if data.startswith(command):
-                    logger.debug("Detected %s command (%s)", description, command)
-                    operation = description
+                    logger.debug("Detected %s command (%s)", operation["description"], command)
+                    current_operation = operation
 
             if data.startswith(b"RESTART"):
-                operation = None
+                current_operation = None
 
         if key == "STDOUT":
             logger.debug("STDOUT: %s", data)
 
-            if operation and data.startswith(b"S PINCACHE_PUT") and queue.empty():
-                await asyncio.sleep(config.wait_time)
+            if current_operation and data.startswith(b"S PINCACHE_PUT") and queue.empty():
+                await asyncio.sleep(current_operation["wait_time"])
 
                 if queue.empty():
                     waiting = True
-                    await notify(logger, config, operation)
+                    await notify(logger, config, current_operation["description"])
                     notified = True
             else:
                 waiting = False
