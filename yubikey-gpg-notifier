@@ -4,9 +4,11 @@ import asyncio
 import datetime
 import json
 import logging
+import string
 import sys
 
 from pathlib import Path
+from typing import Any
 
 CONFIG_PATH = Path.home() / Path(".config") / Path("yubikey-gpg-notifier.json")
 
@@ -117,8 +119,8 @@ async def tee_stream(
     await queue.put((key, None))
 
 
-async def notify(logger: logging.Logger, config: Config, operation: str) -> None:
-    command = str(config.notify_command).replace(r"%operation", operation)
+async def notify(logger: logging.Logger, config: Config, operation: dict[str, Any]) -> None:
+    command = string.Template(config.notify_command).safe_substitute(operation)
     logger.debug("Sending notification with %s", command)
     await asyncio.create_subprocess_shell(
         command,
@@ -201,7 +203,7 @@ async def process_events(
 
                 if queue.empty():
                     waiting = True
-                    await notify(logger, config, current_operation["description"])
+                    await notify(logger, config, current_operation)
                     notified = True
             else:
                 waiting = False

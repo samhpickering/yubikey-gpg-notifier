@@ -18,7 +18,9 @@ Example using [terminal-notifier](https://github.com/julienXX/terminal-notifier)
     "scdaemon": "/path/to/gnupg/libexec/scdaemon",
     "notify_command": "terminal-notifier -group yubikey-gpg-notifier -title YubiKey -message 'Touch to release %operation operation'",
     "cancel_command": "terminal-notifier -remove yubikey-gpg-notifier",
-    "wait_time": 0.2
+    "auth_wait_time": 0.2,
+    "sign_wait_time": 0.2,
+    "decrypt_wait_time": 0.2
 }
 ```
 
@@ -35,10 +37,10 @@ gpgconf --launch gpg-agent
 Configuration is loaded from `~/.config/yubikey-gpg-notifier.json` and must be present and complete for the tool to start.
 
 Options:
-- `notify_command` - a shell command to run when a touch event is detected. The string `%operation` will be replaced with a description of the current operation.
-- `cancel_command` - a shell command to run when the end of a touch event is detected
-- `scdaemon` - the location of the scdaemon executable, can be retrieved with `gpgconf`
-- `wait_time` - the length of time a smart card operation has to block before it is considered a touch event. Raise this if you are seeing notifications when a touch is not needed.
+- `notify_command` - a shell command to run when a touch event is detected. `$description` will be replaced with a description of the current operation.
+- `cancel_command` - a shell command to run when the end of a touch event is detected.
+- `scdaemon` - the location of the scdaemon executable, can be retrieved with `gpgconf`.
+- `auth_wait_time`, `sign_wait_time`, `decrypt_wait_time` - the length of time a smart card operation has to block before it is considered a touch event. Raise this if you are seeing notifications when a touch is not needed.
 - `log_level` (optional) - the [level](https://docs.python.org/3/library/logging.html#levels) of logging to output. Defaults to `info`.
 > [!WARNING]
 > When raising the log level to debug, communication between the smart card and daemon is logged. This can include PINs and other sensitive data.
@@ -51,7 +53,9 @@ Using terminal-notifier:
     "scdaemon": "/path/to/gnupg/libexec/scdaemon",
     "notify_command": "terminal-notifier -group yubikey-gpg-notifier -title YubiKey -message 'Touch to release %operation operation'",
     "cancel_command": "terminal-notifier -remove yubikey-gpg-notifier",
-    "wait_time": 0.2
+    "auth_wait_time": 0.2,
+    "sign_wait_time": 0.2,
+    "decrypt_wait_time": 0.2
 }
 ```
 ![Screenshot of a notification using terminal-notifier](screenshots/notification-terminal-notifier.png)
@@ -64,7 +68,9 @@ Using terminal-notifier, masquerading as Yubico Authenticator:
     "scdaemon": "/path/to/gnupg/libexec/scdaemon",
     "notify_command": "terminal-notifier -group yubikey-gpg-notifier -sender com.yubico.yubioath -title YubiKey -message 'Touch to release %operation operation'",
     "cancel_command": "terminal-notifier -remove yubikey-gpg-notifier -sender com.yubico.yubioath",
-    "wait_time": 0.2
+    "auth_wait_time": 0.2,
+    "sign_wait_time": 0.2,
+    "decrypt_wait_time": 0.2
 }
 ```
 ![Screenshot of a notification using terminal-notifier masquerading as Yubico Authenticator](screenshots/notification-terminal-notifier-yubico-authenticator.png)
@@ -77,7 +83,9 @@ Using libnotify's notify-send:
     "scdaemon": "/path/to/gnupg/libexec/scdaemon",
     "notify_command": "notify-send --transient YubiKey 'Touch to release %operation operation'",
     "cancel_command": "",
-    "wait_time": 0.2
+    "auth_wait_time": 0.2,
+    "sign_wait_time": 0.2,
+    "decrypt_wait_time": 0.2
 }
 ```
 ![Screenshot of a notification using notify-send in GNOME](screenshots/notification-notify-send-gnome.png)
